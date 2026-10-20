@@ -178,7 +178,7 @@ function AuthScreen({ onAuthenticated }) {
               {signingUp ? 'Sign in' : 'Create an account'}
             </button>
           </p>
-          <p className="auth-switch admin-entry"><a href="/admin">Administrator sign in</a></p>
+          <p className="auth-switch admin-entry"><a href="/?view=admin">Administrator sign in</a></p>
           <p className="auth-safety"><Check size={14} /> Your password is encrypted and never stored as plain text.</p>
         </div>
         <span className="auth-footer">A calmer look at the everyday.</span>
@@ -678,5 +678,7 @@ function ExpenseApp() {
 }
 
 export default function App() {
-  return window.location.pathname.replace(/\/+$/, '') === '/admin' ? <AdminApp /> : <ExpenseApp />;
+  const adminRoute = new URLSearchParams(window.location.search).get('view') === 'admin'
+    || window.location.pathname.replace(/\/+$/, '') === '/admin';
+  return adminRoute ? <AdminApp /> : <ExpenseApp />;
 }

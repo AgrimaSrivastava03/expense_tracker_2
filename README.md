@@ -28,7 +28,7 @@ Create an account with a unique username and a password of at least 8 characters
 
 ## Administrator view
 
-The separate administrator view is available at `/admin`. It shows registered usernames and signup times, deployment metadata, and a CSV export. It does not expose password hashes, session tokens, or users' expenses.
+The separate administrator view is available at `/?view=admin`. It shows registered usernames and signup times, deployment metadata, and a CSV export. It does not expose password hashes, session tokens, or users' expenses.
 
 Configure `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` on the API server to enable administrator sign-in. Generate a salted password hash using the same `hash_password` function as the API; do not store or commit the administrator password in source control. The admin password hash belongs in a root-readable server environment file, not in Amplify's frontend environment variables.
 
