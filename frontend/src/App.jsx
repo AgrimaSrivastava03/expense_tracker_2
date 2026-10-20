@@ -59,6 +59,20 @@ function displayDate(value, options = { month: 'short', day: 'numeric' }) {
   return new Date(`${value}T12:00:00`).toLocaleDateString('en-US', options);
 }
 
+function errorMessage(detail, fallback) {
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (typeof item === 'string' ? item : item?.msg))
+      .filter((message) => typeof message === 'string' && message.trim());
+    if (messages.length) return messages.join('. ');
+  }
+  if (detail && typeof detail === 'object') {
+    return errorMessage(detail.message || detail.msg || detail.detail, fallback);
+  }
+  return fallback;
+}
+
 async function api(path, { token, ...options } = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -70,7 +84,7 @@ async function api(path, { token, ...options } = {}) {
   });
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || 'Something went wrong. Please try again.');
+  if (!response.ok) throw new Error(errorMessage(body.detail, 'Something went wrong. Please try again.'));
   return body;
 }
 
@@ -456,7 +470,7 @@ function AdminDashboard({ overview, users, username, onSignOut }) {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.detail || 'Could not export the user list.');
+        throw new Error(errorMessage(body.detail, 'Could not export the user list.'));
       }
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
