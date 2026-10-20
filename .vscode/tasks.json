@@ -1,0 +1,117 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install API requirements for deployment",
+			"type": "shell",
+			"command": "/Users/vartikasrivastava/Documents/agrima-project/api/.venv/bin/python",
+			"args": [
+				"-m",
+				"pip",
+				"install",
+				"-r",
+				"/Users/vartikasrivastava/Documents/agrima-project/api/requirements.txt"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build Vercel frontend",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"/Users/vartikasrivastava/Documents/agrima-project/frontend",
+				"run",
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Smoke test FastAPI account and expense CRUD",
+			"type": "shell",
+			"command": "/Users/vartikasrivastava/Documents/agrima-project/api/.venv/bin/python",
+			"args": [
+				"-c",
+				"import os,tempfile; os.environ.pop('DATABASE_URL',None); os.environ['EXPENSES_DB']=tempfile.mktemp(suffix='.db'); from fastapi.testclient import TestClient; from app.main import app; client=TestClient(app); r=client.post('/api/auth/register',json={'username':'vercel-smoke','password':'test-password-123'}); assert r.status_code==201,(r.status_code,r.text); token=r.json()['access_token']; assert client.post('/api/auth/register',json={'username':'VERCEL-SMOKE','password':'other-password'}).status_code==409; assert client.post('/api/auth/login',json={'username':'vercel-smoke','password':'test-password-123'}).status_code==200; payload={'title':'Test','amount':12.5,'category':'Food & drink','spent_at':'2026-10-20','notes':''}; h={'Authorization':'Bearer '+token}; e=client.post('/api/expenses',json=payload,headers=h); assert e.status_code==201,(e.status_code,e.text); eid=e.json()['id']; assert len(client.get('/api/expenses',headers=h).json())==1; u=client.put('/api/expenses/'+str(eid),json={**payload,'title':'Updated'},headers=h); assert u.status_code==200 and u.json()['title']=='Updated',(u.status_code,u.text); assert client.delete('/api/expenses/'+str(eid),headers=h).status_code==204; print('API smoke passed: register, duplicate prevention, login, and expense CRUD')"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Validate FastAPI CRUD for Vercel",
+			"type": "shell",
+			"command": "/Users/vartikasrivastava/Documents/agrima-project/api/.venv/bin/pytest",
+			"args": [
+				"-q",
+				"/Users/vartikasrivastava/Documents/agrima-project/api/tests/test_api.py"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Run FastAPI smoke test",
+			"type": "shell",
+			"command": "/Users/vartikasrivastava/Documents/agrima-project/api/.venv/bin/python",
+			"args": [
+				"-c",
+				"import sys,unittest; sys.path.insert(0, \"/Users/vartikasrivastava/Documents/agrima-project/api\"); suite=unittest.defaultTestLoader.loadTestsFromName(\"tests.test_api\"); result=unittest.TextTestRunner().run(suite); raise SystemExit(not result.wasSuccessful())"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Check project Git state",
+			"type": "shell",
+			"command": "/usr/bin/git",
+			"args": [
+				"-C",
+				"/Users/vartikasrivastava/Documents/agrima-project",
+				"status",
+				"--short",
+				"--branch"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Initialize private deployment repository",
+			"type": "shell",
+			"command": "/usr/bin/git",
+			"args": [
+				"-C",
+				"/Users/vartikasrivastava/Documents/agrima-project",
+				"init"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Review files before private upload",
+			"type": "shell",
+			"command": "/usr/bin/git",
+			"args": [
+				"-C",
+				"/Users/vartikasrivastava/Documents/agrima-project",
+				"status",
+				"--short",
+				"--branch",
+				"--ignored"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Run FastAPI smoke test",
+			"type": "shell",
+			"command": "/Users/vartikasrivastava/Documents/agrima-project/api/.venv/bin/python",
+			"args": [
+				"-c",
+				"import sys,unittest; sys.path.insert(0, \"/Users/vartikasrivastava/Documents/agrima-project/api\"); suite=unittest.defaultTestLoader.loadTestsFromName(\"tests.test_api\"); result=unittest.TextTestRunner().run(suite); raise SystemExit(not result.wasSuccessful())"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}
