@@ -1,7 +1,9 @@
 from contextlib import contextmanager
+import csv
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import hmac
+import io
 import os
 from pathlib import Path
 import re
@@ -10,7 +12,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -39,6 +41,9 @@ else:
     )
 SessionFactory = sessionmaker(bind=engine, expire_on_commit=False)
 TOKEN_TTL = timedelta(days=30)
+ADMIN_TOKEN_TTL = timedelta(hours=8)
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").strip()
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="Expense Tracker", version="1.0.0")
@@ -79,6 +84,13 @@ class AuthSession(Base):
 
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expires_at: Mapped[str] = mapped_column(String(40), nullable=False)
+
+
+class AdminSession(Base):
+    __tablename__ = "admin_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     expires_at: Mapped[str] = mapped_column(String(40), nullable=False)
 
 
@@ -142,6 +154,14 @@ def issue_session(connection: Session, user_id: int) -> str:
     return token
 
 
+def issue_admin_session(connection: Session) -> str:
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    expires_at = (utc_now() + ADMIN_TOKEN_TTL).isoformat()
+    connection.add(AdminSession(token_hash=token_hash, expires_at=expires_at))
+    return token
+
+
 def user_payload(user: User):
     return {"id": user.id, "username": user.username}
 
@@ -192,6 +212,27 @@ def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+def get_current_admin(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+):
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin sign-in required")
+    token_hash = hashlib.sha256(credentials.credentials.encode()).hexdigest()
+    with connect_db() as connection:
+        session = connection.scalar(
+            select(AdminSession).where(
+                AdminSession.token_hash == token_hash,
+                AdminSession.expires_at > utc_now().isoformat(),
+            )
+        )
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin session expired. Sign in again.")
+    return {"username": ADMIN_USERNAME}
+
+
+CurrentAdmin = Annotated[dict, Depends(get_current_admin)]
+
+
 @app.on_event("startup")
 def startup():
     initialize_db()
@@ -229,6 +270,80 @@ def login(payload: Credentials):
         token = issue_session(connection, user.id)
         connection.commit()
     return {"access_token": token, "token_type": "bearer", "user": user_payload(user)}
+
+
+@app.post("/api/admin/auth/login")
+def admin_login(payload: Credentials):
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD_HASH:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin sign-in is not configured",
+        )
+    username_matches = hmac.compare_digest(payload.username.lower(), ADMIN_USERNAME.lower())
+    password_matches = verify_password(payload.password, ADMIN_PASSWORD_HASH)
+    if not username_matches or not password_matches:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Username or password is incorrect")
+    with connect_db() as connection:
+        token = issue_admin_session(connection)
+        connection.commit()
+    return {"access_token": token, "token_type": "bearer", "user": {"username": ADMIN_USERNAME}}
+
+
+@app.get("/api/admin/auth/me")
+def admin_current(admin: CurrentAdmin):
+    return admin
+
+
+@app.post("/api/admin/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def admin_logout(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    admin: CurrentAdmin,
+):
+    if credentials is not None:
+        token_hash = hashlib.sha256(credentials.credentials.encode()).hexdigest()
+        with connect_db() as connection:
+            connection.execute(delete(AdminSession).where(AdminSession.token_hash == token_hash))
+            connection.commit()
+
+
+@app.get("/api/admin/overview")
+def admin_overview(admin: CurrentAdmin):
+    with connect_db() as connection:
+        total_users = connection.scalar(select(func.count()).select_from(User)) or 0
+    return {
+        "total_users": total_users,
+        "region": os.getenv("ADMIN_DEPLOYMENT_REGION", os.getenv("AWS_REGION", "Not configured")),
+        "instance_id": os.getenv("ADMIN_EC2_INSTANCE_ID", "Not configured"),
+        "security_group_id": os.getenv("ADMIN_EC2_SECURITY_GROUP_ID", "Not configured"),
+        "frontend_url": os.getenv("ADMIN_FRONTEND_URL", "Not configured"),
+        "api_url": os.getenv("ADMIN_API_URL", "Not configured"),
+    }
+
+
+@app.get("/api/admin/users")
+def admin_users(admin: CurrentAdmin):
+    with connect_db() as connection:
+        users = connection.execute(
+            select(User.username, User.created_at).order_by(User.created_at.desc(), User.id.desc())
+        ).all()
+    return [{"username": username, "created_at": created_at} for username, created_at in users]
+
+
+@app.get("/api/admin/users.csv")
+def admin_users_csv(admin: CurrentAdmin):
+    with connect_db() as connection:
+        users = connection.execute(
+            select(User.username, User.created_at).order_by(User.created_at.desc(), User.id.desc())
+        ).all()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["username", "created_at"])
+    writer.writerows(users)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="expense-tracker-users.csv"'},
+    )
 
 
 @app.get("/api/auth/me")

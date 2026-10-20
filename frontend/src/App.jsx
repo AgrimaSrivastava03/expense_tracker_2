@@ -18,16 +18,19 @@ import {
   PieChart,
   Plus,
   Search,
+  Server,
   ShoppingBag,
   Sparkles,
   Tag,
   Trash2,
+  Users,
   Wallet,
   X,
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000/api' : '/api');
 const TOKEN_KEY = 'morrow-access-token';
+const ADMIN_TOKEN_KEY = 'morrow-admin-access-token';
 const CATEGORIES = ['Food & drink', 'Transport', 'Shopping', 'Bills', 'Health', 'Entertainment', 'Home', 'Other'];
 const PLOT_COLORS = ['#507764', '#d77e62', '#d6ae4f', '#8292a5', '#9f809f', '#77a8a0', '#bd8b48', '#ac695b'];
 const categoryIcons = {
@@ -175,6 +178,7 @@ function AuthScreen({ onAuthenticated }) {
               {signingUp ? 'Sign in' : 'Create an account'}
             </button>
           </p>
+          <p className="auth-switch admin-entry"><a href="/admin">Administrator sign in</a></p>
           <p className="auth-safety"><Check size={14} /> Your password is encrypted and never stored as plain text.</p>
         </div>
         <span className="auth-footer">A calmer look at the everyday.</span>
@@ -360,7 +364,241 @@ function EmptyState({ onAdd }) {
   return <div className="empty-state"><div className="empty-illustration"><span className="empty-sheet"><span /><span /><span /></span><span className="empty-sun" /></div><p className="eyebrow">A FRESH START</p><h3>Your first expense goes here.</h3><p>Once you add one, your spending starts to tell its story.</p><button className="button button-outline" onClick={onAdd}><Plus size={16} />Add your first expense</button></div>;
 }
 
-export default function App() {
+function AdminLogin({ onAuthenticated }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      const result = await api('/admin/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username: username.trim(), password }),
+      });
+      onAuthenticated(result);
+    } catch (loginError) {
+      setError(loginError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-aside">
+        <div className="auth-aside-top"><Logo light /><span className="aside-stamp">PRIVATE ADMIN AREA</span></div>
+        <div className="auth-message">
+          <p className="eyebrow">DEPLOYMENT OVERVIEW</p>
+          <h1>Everything,<br />in one place.</h1>
+          <p>Review registrations and deployment details for your Expense Tracker.</p>
+        </div>
+        <div className="aside-note"><span className="note-icon"><Server size={17} /></span><span>Private access.<br /><strong>Account data stays protected.</strong></span></div>
+      </section>
+      <section className="auth-content">
+        <div className="auth-mobile-brand"><Logo /></div>
+        <div className="auth-form-wrap">
+          <p className="eyebrow">ADMINISTRATOR ACCESS</p>
+          <h2>Welcome back.</h2>
+          <p className="auth-subtitle">Sign in to view registrations and deployment details.</p>
+          <form className="auth-form" onSubmit={submit}>
+            <label htmlFor="admin-username">Admin username</label>
+            <input
+              id="admin-username"
+              autoComplete="username"
+              minLength={3}
+              maxLength={40}
+              required
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="Administrator username"
+            />
+            <label htmlFor="admin-password">Password</label>
+            <input
+              id="admin-password"
+              type="password"
+              autoComplete="current-password"
+              minLength={8}
+              maxLength={128}
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Admin password"
+            />
+            {error && <p className="form-error" role="alert">{error}</p>}
+            <button className="button button-dark auth-submit" disabled={busy} type="submit">
+              {busy ? 'One moment…' : 'Sign in securely'}
+              {!busy && <ArrowUpRight size={17} />}
+            </button>
+          </form>
+          <p className="auth-switch"><a href="/">Back to Expense Tracker</a></p>
+          <p className="auth-safety"><Check size={14} /> This area does not display passwords or expense details.</p>
+        </div>
+        <span className="auth-footer">Administrator access is separate from user accounts.</span>
+      </section>
+    </main>
+  );
+}
+
+function AdminDashboard({ overview, users, username, onSignOut }) {
+  const [downloadError, setDownloadError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadUsers() {
+    setDownloadError('');
+    setDownloading(true);
+    try {
+      const response = await fetch(`${API_URL}/admin/users.csv`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem(ADMIN_TOKEN_KEY)}` },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || 'Could not export the user list.');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'expense-tracker-users.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setDownloadError(error.message);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const deploymentDetails = [
+    ['Frontend', overview.frontend_url],
+    ['Backend API', overview.api_url],
+    ['AWS Region', overview.region],
+    ['EC2 instance', overview.instance_id],
+    ['Security group', overview.security_group_id],
+  ];
+
+  return (
+    <div className="admin-shell">
+      <header className="admin-topbar">
+        <a className="admin-brand" href="/"><Logo /></a>
+        <div className="admin-topbar-right">
+          <span className="admin-identity">Signed in as <strong>{username}</strong></span>
+          <button className="button button-outline" onClick={onSignOut}><LogOut size={15} />Sign out</button>
+        </div>
+      </header>
+      <main className="admin-main">
+        <section className="admin-heading">
+          <div><p className="eyebrow">PRIVATE ADMIN AREA</p><h1>Deployment overview<span className="heading-period">.</span></h1><p>App registrations and live AWS deployment details.</p></div>
+          <span className="admin-live"><span />LIVE</span>
+        </section>
+        <section className="admin-metrics" aria-label="Application summary">
+          <article className="admin-metric-card"><span className="admin-metric-icon"><Users size={18} /></span><span>Total registered users</span><strong>{overview.total_users}</strong><small>Account credentials are not shown</small></article>
+          <article className="admin-metric-card"><span className="admin-metric-icon admin-metric-gold"><Server size={18} /></span><span>Compute</span><strong>Amazon EC2</strong><small>{overview.instance_id}</small></article>
+        </section>
+        <section className="panel admin-panel">
+          <div className="panel-heading admin-panel-heading">
+            <div><p className="eyebrow">AWS DEPLOYMENT</p><h2>Live application</h2></div>
+          </div>
+          <div className="deployment-grid">
+            {deploymentDetails.map(([label, value]) => (
+              <div className="deployment-item" key={label}>
+                <span>{label}</span>
+                {value.startsWith('https://') ? <a href={value} target="_blank" rel="noreferrer">{value}</a> : <strong>{value}</strong>}
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="panel admin-panel admin-users-panel">
+          <div className="panel-heading admin-panel-heading">
+            <div><p className="eyebrow">ACCOUNT REGISTRATIONS</p><h2>Registered users</h2><p className="welcome-sub">Only usernames and signup times are included.</p></div>
+            <button className="button button-dark" disabled={downloading} onClick={downloadUsers}><FileText size={16} />{downloading ? 'Preparing…' : 'Download CSV'}</button>
+          </div>
+          {downloadError && <p className="form-error" role="alert">{downloadError}</p>}
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead><tr><th scope="col">#</th><th scope="col">Username</th><th scope="col">Registered (UTC)</th></tr></thead>
+              <tbody>{users.map((user, index) => (
+                <tr key={`${user.username}-${user.created_at}`}><td>{index + 1}</td><td><strong>{user.username}</strong></td><td>{new Date(user.created_at).toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })}</td></tr>
+              ))}</tbody>
+            </table>
+            {!users.length && <div className="admin-empty">No users have registered yet.</div>}
+          </div>
+        </section>
+        <footer className="admin-footer"><span>Expense Tracker · Private admin view</span><span>Passwords, tokens, and personal expenses are never included.</span></footer>
+      </main>
+    </div>
+  );
+}
+
+function AdminApp() {
+  const [token, setToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY));
+  const [admin, setAdmin] = useState(null);
+  const [overview, setOverview] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(Boolean(localStorage.getItem(ADMIN_TOKEN_KEY)));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!token) {
+      setLoading(false);
+      return undefined;
+    }
+    let active = true;
+    Promise.all([
+      api('/admin/auth/me', { token }),
+      api('/admin/overview', { token }),
+      api('/admin/users', { token }),
+    ]).then(([account, appOverview, registeredUsers]) => {
+      if (active) {
+        setAdmin(account);
+        setOverview(appOverview);
+        setUsers(registeredUsers);
+        setError('');
+      }
+    }).catch((loadError) => {
+      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      if (active) {
+        setToken(null);
+        setAdmin(null);
+        setOverview(null);
+        setUsers([]);
+        setError(loadError.message);
+      }
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [token]);
+
+  function authenticate(result) {
+    localStorage.setItem(ADMIN_TOKEN_KEY, result.access_token);
+    setToken(result.access_token);
+    setAdmin(result.user);
+    setLoading(true);
+  }
+
+  async function signOut() {
+    try {
+      if (token) await api('/admin/auth/logout', { token, method: 'POST' });
+    } catch {
+      // Clear the local admin session even if the API is unavailable.
+    } finally {
+      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      setToken(null);
+      setAdmin(null);
+      setOverview(null);
+      setUsers([]);
+    }
+  }
+
+  if (loading) return <main className="loading-screen"><Logo /><span className="loading-mark" /></main>;
+  if (!token || !admin || !overview) return <><AdminLogin onAuthenticated={authenticate} />{error && <p className="admin-load-error" role="alert">{error}</p>}</>;
+  return <AdminDashboard overview={overview} users={users} username={admin.username} onSignOut={signOut} />;
+}
+
+function ExpenseApp() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
   const [user, setUser] = useState(null);
   const [expenses, setExpenses] = useState([]);
@@ -437,4 +675,8 @@ export default function App() {
     />
     {dialogExpense !== undefined && <ExpenseDialog expense={dialogExpense === 'new' ? null : dialogExpense} onClose={() => setDialogExpense(undefined)} onSave={saveExpense} />}
   </>;
+}
+
+export default function App() {
+  return window.location.pathname.replace(/\/+$/, '') === '/admin' ? <AdminApp /> : <ExpenseApp />;
 }
